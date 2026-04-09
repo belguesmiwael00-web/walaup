@@ -14,9 +14,11 @@ const NAV_LINKS = [
 ]
 
 const sound = (name) => {
-  if (typeof window !== 'undefined' && window.WalaupSound?.[name]) {
-    window.WalaupSound[name]()
-  }
+  try {
+    if (typeof window !== 'undefined' && window.WalaupSound && typeof window.WalaupSound[name] === 'function') {
+      window.WalaupSound[name]()
+    }
+  } catch {}
 }
 
 export default function Navbar() {
@@ -114,7 +116,6 @@ export default function Navbar() {
             aria-expanded={menuOpen}
             aria-controls="mobile-menu"
             aria-label={menuOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
-            style= touchAction: 'manipulation' 
           >
             <span /><span /><span />
           </button>
