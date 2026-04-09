@@ -150,9 +150,20 @@ export default function RootLayout({ children }) {
         <div id="toast-container" aria-live="polite" aria-atomic="false" />
 
         {/* ── PWA Install Banner ── */}
-        <div id="install-banner" className="install-banner" aria-live="polite" hidden>
-          <span style= fontSize: '1.4rem', fontFamily: 'var(--font-display)', fontWeight: 800 >W</span>
-          </div>
+        {/* ── PWA Install Banner ── */}
+<div id="install-banner" className="install-banner" aria-live="polite" hidden>
+  <div className="install-banner__icon" aria-hidden="true">
+    <span style= fontSize: '1.4rem', fontFamily: 'var(--font-display)', fontWeight: 800 >W</span>
+  </div>
+  <div className="install-banner__content">
+    <p className="install-banner__title">Installer Walaup</p>
+    <p className="install-banner__subtitle">Accès rapide · Mode hors-ligne</p>
+  </div>
+  <div className="install-banner__actions">
+    <button className="btn btn-ghost btn-sm" id="install-banner-dismiss">Plus tard</button>
+    <button className="btn btn-primary btn-sm" id="install-banner-confirm">Installer</button>
+  </div>
+</div>
           <div className="install-banner__content">
             <p className="install-banner__title">Installer Walaup</p>
             <p className="install-banner__subtitle">Accès rapide · Mode hors-ligne</p>
