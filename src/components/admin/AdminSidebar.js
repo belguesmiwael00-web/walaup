@@ -7,9 +7,11 @@ import {
 } from 'lucide-react'
 
 const sound = (name) => {
-  if (typeof window !== 'undefined' && window.WalaupSound?.[name]) {
-    window.WalaupSound[name]()
-  }
+  try {
+    if (typeof window !== 'undefined' && window.WalaupSound && typeof window.WalaupSound[name] === 'function') {
+      window.WalaupSound[name]()
+    }
+  } catch {}
 }
 
 const NAV = [
