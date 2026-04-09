@@ -153,6 +153,7 @@ const CSS = `
     touch-action: manipulation;
   }
   .adm-mob-tab--active { color: var(--ac); }
+  .adm-loading-text { color: var(--tx-3); font-size: 14px; }
 `
 
 const MOB_NAV = [
@@ -239,7 +240,7 @@ export default function AdminPage() {
       <style>{CSS}</style>
       <div className="adm-root">
         <div className="adm-login">
-          <div style= color: 'var(--tx-3)', fontSize: 14 >Chargement...</div>
+          <div className="adm-loading-text">Chargement...</div>
         </div>
       </div>
     </>
