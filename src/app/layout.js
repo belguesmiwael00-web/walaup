@@ -9,7 +9,7 @@ import EffectsClient from '@/components/layout/EffectsClient'
 const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
   variable: '--font-display-raw',
-  weight: ['400', '500', '600', '700'],
+  weight: ['400', '500', '600', '700', '800'],
   display: 'swap',
 })
 
@@ -27,7 +27,15 @@ const jetbrainsMono = JetBrains_Mono({
   display: 'swap',
 })
 
-/* ── Metadata ─────────────────────────────────────────────── */
+/* ── Viewport (v3: viewport-fit=cover pour PWA iOS) ───────── */
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#080B14',
+}
+
+/* ── Metadata ───────────────────────────────────────── */
 export const metadata = {
   title: {
     default: 'Walaup — Ton business mérite une app',
@@ -53,33 +61,62 @@ export const metadata = {
     description: 'Apps sur mesure pour entreprises tunisiennes. Démo gratuite en 48h.',
   },
   manifest: '/manifest.json',
-  themeColor: '#080B14',
-  icons: {
-    icon: '/favicon.svg',
+  icons: { icon: '/favicon.svg' },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Walaup',
   },
 }
 
-/* ── Root Layout ──────────────────────────────────────────── */
+/* ── Root Layout ─────────────────────────────────────── */
 export default function RootLayout({ children }) {
   return (
     <html
       lang="fr"
+      dir="ltr"
       data-theme="dark"
-      className={`${spaceGrotesk.variable} ${inter.variable} ${jetbrainsMono.variable}`}
+      className={`${
+        spaceGrotesk.variable} ${inter.variable} ${jetbrainsMono.variable
+      }`}
     >
       <head>
-          <link rel="manifest" href="/manifest.json" />
-          <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-          <meta name="theme-color" content="#080B14" />
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <meta name="theme-color" content="#080B14" />
+        {/* v3: viewport-fit=cover pour iOS safe areas */}
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover"
+        />
         {/*
-          Bridge next/font CSS variables → our design token system.
-          --font-display/body/mono are consumed throughout globals.css.
+          Bridge next/font CSS variables → design token system.
+          v3 : ajout font-feature-settings (kern, liga, calt)
+          et tabular-nums pour les montants en mono.
         */}
         <style>{`
           :root {
             --font-display: var(--font-display-raw), 'Space Grotesk', system-ui, sans-serif;
             --font-body:    var(--font-body-raw), 'Inter', system-ui, sans-serif;
             --font-mono:    var(--font-mono-raw), 'JetBrains Mono', monospace;
+          }
+
+          /* v3: Apple typography features */
+          html {
+            font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+          }
+
+          /* Nombres tabulaires dans les tableaux et montants */
+          .font-mono, .text-mono, [data-tabular] {
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum" 1;
+          }
+
+          /* iOS safe area support */
+          .page-wrapper {
+            padding-bottom: env(safe-area-inset-bottom, 0px);
           }
         `}</style>
       </head>
@@ -95,7 +132,7 @@ export default function RootLayout({ children }) {
 
         {/* ── UI chrome ── */}
         <div id="scroll-progress" className="scroll-progress" aria-hidden="true" />
-        <div id="cursor-glow" className="cursor-glow" aria-hidden="true" />
+        <div id="cursor-glow"    className="cursor-glow"    aria-hidden="true" />
         <WalaupLoader />
 
         {/* ── Navigation ── */}
@@ -115,7 +152,11 @@ export default function RootLayout({ children }) {
         {/* ── PWA Install Banner ── */}
         <div id="install-banner" className="install-banner" aria-live="polite" hidden>
           <div className="install-banner__icon" aria-hidden="true">
-            <span style={{ fontSize: '1.4rem', fontFamily: 'var(--font-display)', fontWeight: 800 }}>W</span>
+            <span style=
+              fontSize: '1.4rem',
+              fontFamily: 'var(--font-display)',
+              fontWeight: 800,
+            >W</span>
           </div>
           <div className="install-banner__content">
             <p className="install-banner__title">Installer Walaup</p>
@@ -126,6 +167,10 @@ export default function RootLayout({ children }) {
             <button className="btn btn-primary btn-sm" id="install-banner-confirm">Installer</button>
           </div>
         </div>
+
+        {/* ── v3: Sound system init sur window ── */}
+        {/* WalaupSound est exporté comme window.WalaupSound depuis sound.js */}
+        {/* L'init AudioContext se fait au premier pointerdown via EffectsClient */}
 
         {/* ── Client-side effects bootstrap ── */}
         <EffectsClient />

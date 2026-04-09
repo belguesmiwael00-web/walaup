@@ -1,206 +1,262 @@
 /**
- * sound.js — WalaupSound
- * Web Audio API sound system for Walaup.
- * ES module — no window.* global required.
- * SSR-safe: all functions check typeof window before executing.
- *
- * Usage:
- *   import { WalaupSound } from '@/lib/sound'
- *   WalaupSound.click()
- *   WalaupSound.success()
- *
- * Also exposed as window.WalaupSound for Navbar/inline calls.
+ * sound.js — Walaup Sound System v3.0
+ * Web Audio API pure — zéro fichiers .mp3
+ * Gamme pentatonique mineure de Ré : D, F, G, A, C
+ * Architecture Apple HIG Audio
  */
 
-/* ── Audio Context (lazy singleton) ──────────────────────── */
+/* ── Context singleton ───────────────────────────────────────── */
 let _ctx = null
+let _masterGain = null
+let _reverbBuffer = null
+let _enabled = true
+let _masterVolume = 0.8
+const _cooldowns = new Map()
 
 function getCtx() {
   if (typeof window === 'undefined') return null
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return null
   if (!_ctx) {
     try {
       _ctx = new (window.AudioContext || window.webkitAudioContext)()
-    } catch {
-      return null
-    }
+      _masterGain = _ctx.createGain()
+      _masterGain.gain.value = _masterVolume
+      _masterGain.connect(_ctx.destination)
+      _buildReverb()
+    } catch { return null }
   }
-  // Resume suspended context (browser autoplay policy)
-  if (_ctx.state === 'suspended') {
-    _ctx.resume().catch(() => {})
-  }
+  if (_ctx.state === 'suspended') _ctx.resume().catch(() => {})
   return _ctx
 }
 
-/* ── Core synthesizer ─────────────────────────────────────── */
-/**
- * Plays a synthesized sound.
- * @param {Object} opts
- * @param {'sine'|'square'|'sawtooth'|'triangle'} opts.type - Oscillator wave
- * @param {number|number[]} opts.freq  - Frequency or [startFreq, endFreq]
- * @param {number} opts.dur            - Duration in seconds
- * @param {number} opts.vol            - Peak volume 0–1
- * @param {number} [opts.attack]       - Attack time in seconds
- * @param {number} [opts.decay]        - Decay time in seconds
- * @param {number} [opts.detune]       - Detune in cents
- * @param {number} [opts.delay]        - Start delay in seconds
- */
-function play({ type = 'sine', freq, dur = 0.15, vol = 0.18, attack = 0.01, decay, detune = 0, delay = 0 }) {
+async function _buildReverb() {
+  if (!_ctx) return
+  const sr = _ctx.sampleRate
+  const len = sr * 1.5
+  const buf = _ctx.createBuffer(2, len, sr)
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch)
+    for (let i = 0; i < len; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5)
+    }
+  }
+  _reverbBuffer = buf
+}
+
+/* ── Core engine ───────────────────────────────────────────── */
+function _playNote({ freq, dur = 0.12, vol = 0.10, type = 'sine', attack = 0.005,
+  decay = 0.04, sustain = 0.15, release = 0.06, detune = 0, pan = 0,
+  delay = 0, reverb = false }) {
   const ctx = getCtx()
-  if (!ctx) return
-
+  if (!ctx || !_enabled || !_masterGain) return
   const t = ctx.currentTime + delay
-
   const osc = ctx.createOscillator()
-  const gain = ctx.createGain()
-  const compressor = ctx.createDynamicsCompressor()
-
-  osc.connect(gain)
-  gain.connect(compressor)
-  compressor.connect(ctx.destination)
-
+  const gainNode = ctx.createGain()
+  const panner = ctx.createStereoPanner()
   osc.type = type
+  osc.frequency.value = freq
   osc.detune.value = detune
-
-  // Frequency: single or glide between two values
-  if (Array.isArray(freq)) {
-    osc.frequency.setValueAtTime(freq[0], t)
-    osc.frequency.exponentialRampToValueAtTime(Math.max(freq[1], 1), t + dur)
+  panner.pan.value = Math.max(-1, Math.min(1, pan))
+  const totalDur = attack + decay + release
+  gainNode.gain.setValueAtTime(0, t)
+  gainNode.gain.linearRampToValueAtTime(vol, t + attack)
+  gainNode.gain.linearRampToValueAtTime(vol * sustain, t + attack + decay)
+  gainNode.gain.setValueAtTime(vol * sustain, t + Math.max(totalDur, dur) - release)
+  gainNode.gain.linearRampToValueAtTime(0.0001, t + Math.max(totalDur, dur))
+  osc.connect(gainNode)
+  if (reverb && _reverbBuffer) {
+    const conv = ctx.createConvolver()
+    const rvGain = ctx.createGain()
+    conv.buffer = _reverbBuffer
+    rvGain.gain.value = 0.10
+    gainNode.connect(conv)
+    conv.connect(rvGain)
+    rvGain.connect(panner)
+    gainNode.connect(panner)
   } else {
-    osc.frequency.setValueAtTime(freq, t)
+    gainNode.connect(panner)
   }
-
-  // Amplitude envelope
-  const decayTime = decay ?? dur * 0.85
-  gain.gain.setValueAtTime(0, t)
-  gain.gain.linearRampToValueAtTime(vol, t + attack)
-  gain.gain.exponentialRampToValueAtTime(0.0001, t + attack + decayTime)
-
+  panner.connect(_masterGain)
   osc.start(t)
-  osc.stop(t + attack + decayTime + 0.05)
-
-  // Cleanup
+  osc.stop(t + Math.max(totalDur, dur) + 0.05)
   osc.onended = () => {
-    try { osc.disconnect(); gain.disconnect(); compressor.disconnect() } catch {}
+    try { osc.disconnect(); gainNode.disconnect(); panner.disconnect() } catch {}
   }
 }
 
-/**
- * Plays multiple notes simultaneously (chord) or in sequence.
- */
-function chord(notes, delay = 0) {
-  notes.forEach(n => play({ ...n, delay: (n.delay ?? 0) + delay }))
+function _antiSpam(key, ms = 80) {
+  const now = Date.now()
+  if (_cooldowns.get(key) > now - ms) return false
+  _cooldowns.set(key, now)
+  return true
 }
 
-/* ── Sound Definitions ────────────────────────────────────── */
+function _play(key, notes) {
+  if (!_antiSpam(key)) return
+  notes.forEach(n => _playNote(n))
+}
+
+/* ── Sound catalog — gamme pentatonique Ré mineur ───────────── */
+// D4=293.7, F4=349.2, G4=392, A4=440, C5=523.3
+// D5=587.3, F5=698.5, G5=784, A5=880, C6=1046.5, D6=1174.7
+
 const sounds = {
-  /**
-   * click — Light tap for navigation, toggles, selections.
-   * Emotion: responsive, precise.
-   */
+
+  /* Navigation — ultra-discrets */
+  tap() {
+    _play('tap', [{ freq: 587.3, dur: 0.08, vol: 0.06, type: 'sine',
+      attack: 0.002, decay: 0.03, sustain: 0.05, release: 0.045 }])
+  },
+
   click() {
-    play({ type: 'triangle', freq: 800, dur: 0.08, vol: 0.12, attack: 0.005, decay: 0.06 })
+    _play('click', [
+      { freq: 587.3, dur: 0.10, vol: 0.09, type: 'sine', attack: 0.003, decay: 0.04, sustain: 0.1, release: 0.055 },
+      { freq: 880,   dur: 0.10, vol: 0.05, type: 'sine', attack: 0.003, decay: 0.04, sustain: 0.05, release: 0.055 },
+    ])
   },
 
-  /**
-   * tab — Slightly softer click for tab switches.
-   * Emotion: directional, smooth.
-   */
   tab() {
-    play({ type: 'sine', freq: 660, dur: 0.1, vol: 0.10, attack: 0.005, decay: 0.08 })
-  },
-
-  /**
-   * success — Ascending two-tone for confirmations, payments validated.
-   * Emotion: achievement, satisfaction.
-   */
-  success() {
-    chord([
-      { type: 'sine', freq: 523, dur: 0.18, vol: 0.14, attack: 0.01 },
-      { type: 'sine', freq: 784, dur: 0.22, vol: 0.12, attack: 0.01, delay: 0.1 },
+    _play('tab', [
+      { freq: 587.3, dur: 0.11, vol: 0.08, type: 'sine', attack: 0.003, decay: 0.05, sustain: 0.1, release: 0.055, pan: 0 },
+      { freq: 698.5, dur: 0.11, vol: 0.05, type: 'sine', attack: 0.003, decay: 0.05, sustain: 0.05, release: 0.055 },
     ])
   },
 
-  /**
-   * send — Swoosh-up for sending messages.
-   * Emotion: motion, departure.
-   */
-  send() {
-    play({ type: 'sine', freq: [300, 900], dur: 0.2, vol: 0.13, attack: 0.01, decay: 0.18 })
-  },
-
-  /**
-   * receive — Soft descending ping for incoming messages.
-   * Emotion: arrival, attention.
-   */
-  receive() {
-    chord([
-      { type: 'sine', freq: 880, dur: 0.15, vol: 0.10, attack: 0.01 },
-      { type: 'sine', freq: 660, dur: 0.18, vol: 0.08, attack: 0.01, delay: 0.08 },
+  back() {
+    _play('back', [
+      { freq: 587.3, dur: 0.09, vol: 0.07, type: 'sine', attack: 0.003, decay: 0.04, sustain: 0.05, release: 0.045 },
+      { freq: 440,   dur: 0.09, vol: 0.04, type: 'sine', attack: 0.003, decay: 0.04, sustain: 0.03, release: 0.045, delay: 0.04 },
     ])
   },
 
-  /**
-   * notif — Double-ping for notifications.
-   * Emotion: gentle alert.
-   */
-  notif() {
-    chord([
-      { type: 'sine', freq: 700, dur: 0.12, vol: 0.12, attack: 0.008 },
-      { type: 'sine', freq: 900, dur: 0.12, vol: 0.09, attack: 0.008, delay: 0.14 },
-    ])
-  },
-
-  /**
-   * error — Low descending tone for validation errors.
-   * Emotion: stop, warning (not harsh).
-   */
-  error() {
-    play({ type: 'triangle', freq: [300, 180], dur: 0.25, vol: 0.15, attack: 0.01, decay: 0.22 })
-  },
-
-  /**
-   * toggle — Quick blip for switch toggles.
-   * Emotion: binary, mechanical.
-   */
   toggle() {
-    play({ type: 'square', freq: 440, dur: 0.06, vol: 0.08, attack: 0.003, decay: 0.04 })
+    _play('toggle', [{ freq: 784, dur: 0.07, vol: 0.06, type: 'triangle',
+      attack: 0.001, decay: 0.02, sustain: 0.04, release: 0.045 }])
   },
 
-  /**
-   * pay — Richer success sound for payment confirmations.
-   * Emotion: significant achievement, value.
-   */
+  /* Actions */
+  send() {
+    _play('send', [
+      { freq: 392,   dur: 0.18, vol: 0.10, type: 'sine', attack: 0.005, decay: 0.08, sustain: 0.2, release: 0.08, pan: 0 },
+      { freq: 880,   dur: 0.16, vol: 0.07, type: 'sine', attack: 0.005, decay: 0.06, sustain: 0.1, release: 0.08, pan: 0.2, delay: 0.06 },
+    ])
+  },
+
+  receive() {
+    _play('receive', [
+      { freq: 698.5, dur: 0.20, vol: 0.10, type: 'sine', attack: 0.006, decay: 0.08, sustain: 0.2, release: 0.10, pan: -0.15 },
+      { freq: 880,   dur: 0.18, vol: 0.07, type: 'sine', attack: 0.006, decay: 0.07, sustain: 0.1, release: 0.10, pan: -0.15, delay: 0.08 },
+    ])
+  },
+
+  /* Feedback positif */
+  success() {
+    _play('success', [
+      { freq: 587.3, dur: 0.28, vol: 0.12, type: 'sine', attack: 0.01, decay: 0.08, sustain: 0.4, release: 0.16, reverb: true },
+      { freq: 739.99,dur: 0.26, vol: 0.09, type: 'sine', attack: 0.01, decay: 0.07, sustain: 0.3, release: 0.14, delay: 0.06, reverb: true },
+      { freq: 880,   dur: 0.30, vol: 0.10, type: 'sine', attack: 0.01, decay: 0.09, sustain: 0.4, release: 0.18, delay: 0.12, reverb: true },
+    ])
+  },
+
+  /* Paiement — son le plus rich du système */
   pay() {
-    chord([
-      { type: 'sine', freq: 392, dur: 0.2,  vol: 0.12, attack: 0.01 },
-      { type: 'sine', freq: 523, dur: 0.22, vol: 0.10, attack: 0.01, delay: 0.08 },
-      { type: 'sine', freq: 659, dur: 0.28, vol: 0.12, attack: 0.01, delay: 0.18 },
-      { type: 'sine', freq: 784, dur: 0.20, vol: 0.09, attack: 0.01, delay: 0.28 },
+    _play('pay', [
+      { freq: 587.3,  dur: 0.22, vol: 0.14, type: 'sine', attack: 0.01, decay: 0.09, sustain: 0.5, release: 0.12, reverb: true },
+      { freq: 880,    dur: 0.22, vol: 0.10, type: 'sine', attack: 0.01, decay: 0.08, sustain: 0.4, release: 0.12, delay: 0.08, reverb: true },
+      { freq: 1174.7, dur: 0.30, vol: 0.11, type: 'sine', attack: 0.01, decay: 0.10, sustain: 0.5, release: 0.18, delay: 0.16, reverb: true },
     ])
   },
 
-  /**
-   * install — Celebratory chord for PWA install.
-   * Emotion: welcome, enrolled.
-   */
-  install() {
-    chord([
-      { type: 'sine', freq: 523, dur: 0.18, vol: 0.13, attack: 0.01 },
-      { type: 'sine', freq: 659, dur: 0.18, vol: 0.10, attack: 0.01, delay: 0.12 },
-      { type: 'sine', freq: 784, dur: 0.22, vol: 0.12, attack: 0.01, delay: 0.22 },
+  /* Feedback négatif */
+  error() {
+    _play('error', [
+      { freq: 293.7, dur: 0.20, vol: 0.10, type: 'sine', attack: 0.005, decay: 0.08, sustain: 0.1, release: 0.10 },
+      { freq: 220,   dur: 0.20, vol: 0.07, type: 'triangle', attack: 0.005, decay: 0.07, sustain: 0.05, release: 0.10, delay: 0.06, detune: -30 },
     ])
   },
+
+  warning() {
+    _play('warning', [{ freq: 392, dur: 0.16, vol: 0.08, type: 'triangle',
+      attack: 0.004, decay: 0.06, sustain: 0.1, release: 0.08, detune: -20 }])
+  },
+
+  /* Notifications */
+  notif() {
+    _play('notif', [
+      { freq: 784,    dur: 0.22, vol: 0.10, type: 'sine', attack: 0.006, decay: 0.08, sustain: 0.25, release: 0.12, reverb: true },
+      { freq: 1174.7, dur: 0.22, vol: 0.07, type: 'sine', attack: 0.006, decay: 0.07, sustain: 0.15, release: 0.12, delay: 0.08, reverb: true },
+    ])
+  },
+
+  /* Système */
+  modalOpen() {
+    _play('modalOpen', [
+      { freq: 440, dur: 0.18, vol: 0.07, type: 'sine', attack: 0.008, decay: 0.07, sustain: 0.2, release: 0.09 },
+      { freq: 587.3, dur: 0.18, vol: 0.05, type: 'sine', attack: 0.008, decay: 0.06, sustain: 0.1, release: 0.09, delay: 0.06 },
+    ])
+  },
+
+  modalClose() {
+    _play('modalClose', [
+      { freq: 587.3, dur: 0.14, vol: 0.06, type: 'sine', attack: 0.004, decay: 0.05, sustain: 0.1, release: 0.07 },
+      { freq: 440,   dur: 0.14, vol: 0.04, type: 'sine', attack: 0.004, decay: 0.05, sustain: 0.05, release: 0.07, delay: 0.04 },
+    ])
+  },
+
+  copy() {
+    _play('copy', [{ freq: 1046.5, dur: 0.06, vol: 0.06, type: 'sine',
+      attack: 0.001, decay: 0.02, sustain: 0.01, release: 0.035 }])
+  },
+
+  delete() {
+    _play('delete', [{ freq: 220, dur: 0.18, vol: 0.08, type: 'triangle',
+      attack: 0.005, decay: 0.07, sustain: 0.05, release: 0.09, detune: -15 }])
+  },
+
+  /* Level up — moment exceptionnel */
+  levelUp() {
+    _play('levelUp', [
+      { freq: 523.3,  dur: 0.22, vol: 0.14, type: 'sine', attack: 0.01, decay: 0.09, sustain: 0.5, release: 0.12, reverb: true },
+      { freq: 659.3,  dur: 0.22, vol: 0.10, type: 'sine', attack: 0.01, decay: 0.08, sustain: 0.4, release: 0.12, delay: 0.10, reverb: true },
+      { freq: 784,    dur: 0.22, vol: 0.10, type: 'sine', attack: 0.01, decay: 0.09, sustain: 0.4, release: 0.12, delay: 0.20, reverb: true },
+      { freq: 1046.5, dur: 0.30, vol: 0.12, type: 'sine', attack: 0.01, decay: 0.10, sustain: 0.5, release: 0.18, delay: 0.30, reverb: true },
+    ])
+  },
+
+  install() {
+    _play('install', [
+      { freq: 523.3, dur: 0.18, vol: 0.12, type: 'sine', attack: 0.01, decay: 0.07, sustain: 0.4, release: 0.10, reverb: true },
+      { freq: 784,   dur: 0.18, vol: 0.09, type: 'sine', attack: 0.01, decay: 0.07, sustain: 0.3, release: 0.10, delay: 0.12, reverb: true },
+      { freq: 1046.5,dur: 0.22, vol: 0.10, type: 'sine', attack: 0.01, decay: 0.08, sustain: 0.4, release: 0.14, delay: 0.22, reverb: true },
+    ])
+  },
+
+  /* API Publique — setters */
+  setEnabled(v) {
+    _enabled = v
+    if (typeof localStorage !== 'undefined') localStorage.setItem('walaup_sound', String(v))
+  },
+  setVolume(v) {
+    _masterVolume = Math.max(0, Math.min(1, v))
+    if (_masterGain) _masterGain.gain.value = _masterVolume
+    if (typeof localStorage !== 'undefined') localStorage.setItem('walaup_sound_vol', String(v))
+  },
+  get isEnabled() { return _enabled },
+  get volume() { return _masterVolume },
 }
 
-/* ── Export ───────────────────────────────────────────────── */
-export const WalaupSound = sounds
+/* Charger les préférences persistées */
+if (typeof window !== 'undefined') {
+  const saved = localStorage.getItem('walaup_sound')
+  if (saved !== null) _enabled = saved === 'true'
+  const vol = localStorage.getItem('walaup_sound_vol')
+  if (vol !== null) _masterVolume = parseFloat(vol)
+}
 
-// Register on window for non-module contexts (Navbar inline calls, etc.)
+export const WalaupSound = sounds
 if (typeof window !== 'undefined') {
   window.WalaupSound = sounds
-  // Backward-compat aliases from vanilla stack
-  window.HiveSound = sounds
-  window.BizSound  = sounds
+  window.HiveSound   = sounds
+  window.BizSound    = sounds
 }
-
 export default sounds

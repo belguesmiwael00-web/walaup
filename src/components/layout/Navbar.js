@@ -13,10 +13,16 @@ const NAV_LINKS = [
   { href: '/#packs',        label: 'Nos packs' },
 ]
 
+const sound = (name) => {
+  if (typeof window !== 'undefined' && window.WalaupSound?.[name]) {
+    window.WalaupSound[name]()
+  }
+}
+
 export default function Navbar() {
   const pathname = usePathname()
-  const [scrolled, setScrolled] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [scrolled, setScrolled]   = useState(false)
+  const [menuOpen, setMenuOpen]   = useState(false)
 
   const handleScroll = useCallback(() => {
     setScrolled(window.scrollY > 24)
@@ -33,12 +39,6 @@ export default function Navbar() {
     document.body.style.overflow = menuOpen ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
   }, [menuOpen])
-
-  const playClick = () => {
-    if (typeof window !== 'undefined' && window.WalaupSound) {
-      window.WalaupSound.tab()
-    }
-  }
 
   return (
     <>
@@ -62,13 +62,20 @@ export default function Navbar() {
           background: rgba(245,158,11,0.10) !important;
           color: #FCD34D !important;
         }
+        /* v3: touch-action sur les boutons interactifs */
+        .nav-hamburger, .btn { touch-action: manipulation; }
       `}</style>
 
-      <nav className={`navbar${scrolled ? ' navbar--scrolled' : ''}`} role="navigation" aria-label="Navigation principale">
+      <nav
+        className={`navbar${scrolled ? ' navbar--scrolled' : ''}`}
+        role="navigation"
+        aria-label="Navigation principale"
+      >
         <div className="navbar__inner">
 
           {/* Brand */}
-          <Link href="/" className="brand-wordmark" aria-label="Walaup — Accueil">
+          <Link href="/" className="brand-wordmark" aria-label="Walaup — Accueil"
+            onClick={() => sound('tap')}>
             Walaup<span className="brand-dot">.</span>
           </Link>
 
@@ -76,14 +83,13 @@ export default function Navbar() {
           <ul className="nav-links" role="list">
             {NAV_LINKS.map(link => (
               <li key={link.href}>
-                <Link href={link.href} className="nav-link" onClick={playClick}>
+                <Link href={link.href} className="nav-link" onClick={() => sound('tap')}>
                   {link.label}
                 </Link>
               </li>
             ))}
-            {/* Marketplace — gold + blink */}
             <li>
-              <Link href="/marketplace" className="nav-link marketplace-link" onClick={playClick}>
+              <Link href="/marketplace" className="nav-link marketplace-link" onClick={() => sound('tap')}>
                 <Store size={14} className="marketplace-icon" color="#F59E0B" strokeWidth={2.2} />
                 Marketplace
               </Link>
@@ -92,10 +98,11 @@ export default function Navbar() {
 
           {/* Desktop actions */}
           <div className="nav-actions">
-            <Link href="/client" className="btn btn-ghost btn-sm" onClick={playClick}>
+            <Link href="/client" className="btn btn-ghost btn-sm" onClick={() => sound('tap')}>
               Se connecter
             </Link>
-            <Link href="/#contact" className="btn btn-primary btn-sm btn-magnetic" onClick={playClick}>
+            <Link href="/#contact" className="btn btn-primary btn-sm btn-magnetic"
+              onClick={() => sound('click')}>
               Créer mon app
             </Link>
           </div>
@@ -103,14 +110,13 @@ export default function Navbar() {
           {/* Mobile hamburger */}
           <button
             className={`nav-hamburger${menuOpen ? ' open' : ''}`}
-            onClick={() => setMenuOpen(prev => !prev)}
+            onClick={() => { setMenuOpen(prev => !prev); sound('toggle') }}
             aria-expanded={menuOpen}
             aria-controls="mobile-menu"
             aria-label={menuOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
+            style= touchAction: 'manipulation' 
           >
-            <span />
-            <span />
-            <span />
+            <span /><span /><span />
           </button>
         </div>
       </nav>
@@ -125,22 +131,22 @@ export default function Navbar() {
       >
         {NAV_LINKS.map(link => (
           <Link key={link.href} href={link.href} className="nav-link"
-            onClick={() => { setMenuOpen(false); playClick() }}>
+            onClick={() => { setMenuOpen(false); sound('tap') }}>
             {link.label}
           </Link>
         ))}
-        {/* Marketplace mobile */}
         <Link href="/marketplace" className="nav-link marketplace-link"
-          onClick={() => { setMenuOpen(false); playClick() }}>
+          onClick={() => { setMenuOpen(false); sound('tap') }}>
           <Store size={15} className="marketplace-icon" color="#F59E0B" strokeWidth={2.2} />
           Marketplace
         </Link>
-
         <div className="nav-actions">
-          <Link href="/client" className="btn btn-ghost" onClick={() => { setMenuOpen(false); playClick() }}>
+          <Link href="/client" className="btn btn-ghost"
+            onClick={() => { setMenuOpen(false); sound('tap') }}>
             Se connecter
           </Link>
-          <Link href="/#contact" className="btn btn-primary" onClick={() => { setMenuOpen(false); playClick() }}>
+          <Link href="/#contact" className="btn btn-primary"
+            onClick={() => { setMenuOpen(false); sound('click') }}>
             Créer mon app
           </Link>
         </div>
