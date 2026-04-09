@@ -332,7 +332,7 @@ export default function TabClients() {
                       <div className="adm-bubble-ts">{m.ts}</div>
                     </div>
                   ))}
-                  {(sel.messages||[]).length===0 && <div style=textAlign:'center',color:'var(--tx-3)',fontSize:12,marginTop:20>Aucun message — \u00e9crivez le premier message</div>}
+                  {(sel.messages||[]).length===0 && <div className="adm-chat-empty">Aucun message — écrivez le premier message</div>
                 </div>
                 <div className="adm-chat-inp">
                   <textarea className="adm-chat-field" rows={1} placeholder="Message..." value={msg}
@@ -417,8 +417,8 @@ export default function TabClients() {
 
                 {sel.final_sent && (
                   <div className="dp-final-section">
-                    <div className="dp-pay-title" style=color:'#10B981'>\u2705 App livr\u00e9e</div>
-                    <div style=fontSize:11,color:'var(--tx-3)'>{sel.final_url}</div>
+                    <div className="dp-final-title-green">✅ App livrée</div>
+                    <div className="dp-final-url">{sel.final_url}</div>
                   </div>
                 )}
               </div>
