@@ -153,7 +153,7 @@ export default function RootLayout({ children }) {
         {/* ── PWA Install Banner ── */}
 <div id="install-banner" className="install-banner" aria-live="polite" hidden>
   <div className="install-banner__icon" aria-hidden="true">
-    <span style= fontSize: '1.4rem', fontFamily: 'var(--font-display)', fontWeight: 800 >W</span>
+    <span>W</span>
   </div>
   <div className="install-banner__content">
     <p className="install-banner__title">Installer Walaup</p>
